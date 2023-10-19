@@ -1,24 +1,32 @@
-use std::{path::PathBuf, fs};
+use std::{path::PathBuf, fs, process::Command};
 
 use clap::Parser;
-use rand::Rng;
 
 #[derive(Parser)]
 struct Args {
     input: PathBuf,
     output: Option<PathBuf>,
+    #[arg(short, long, default_value_t = false)]
+    sign: bool
 }
 
-pub fn patch(mut data: Vec<u8>) -> Result<Vec<u8>, regex::Error> {
-    let regex = regex::bytes::Regex::new("cdc_[a-zA-Z0-9]*")?;
-    let mut matches = regex.find_iter(&data).peekable();
-    let len = matches.peek().expect("signature not found").len();
-    let ranges: Vec<_> = matches.map(|m| m.range()).collect();
-    let signature: Vec<_> = rand::thread_rng().sample_iter(rand::distributions::Alphanumeric).take(len).collect();
+pub fn patch(mut data: Vec<u8>, injected_code_block: &str) -> anyhow::Result<Vec<u8>> {
+    let regex = regex::bytes::Regex::new(r#"\{window\.cdc.+;\}"#)?;
+    let code_block = regex.find(&data).ok_or(anyhow::Error::msg("code block not found"))?;
 
-    for r in ranges {
-        let s = r.start;
-        data[s..s + signature.len()].iter_mut().enumerate().for_each(|(i, b)| *b = signature[i]);
+    if injected_code_block.len() > code_block.len() {
+        return Err(anyhow::Error::msg("injected code block length is too big"));
+    }
+
+    let injected_code_block = injected_code_block
+        .bytes()
+        .chain(
+            std::iter::repeat(b' ')
+                .take(code_block.len() - injected_code_block.len())
+        );
+
+    for (i, b) in code_block.range().zip(injected_code_block) {
+        data[i] = b;
     }
 
     Ok(data)
@@ -29,7 +37,24 @@ fn main() -> anyhow::Result<()> {
     let data = fs::read(&args.input)?;
     let output = args.output.unwrap_or(args.input);
     
-    fs::write(output, patch(data)?)?;
+    fs::write(&output, patch(data, "{}")?)?;
+
+    if args.sign {
+        if cfg!(target_os = "macos") {
+            let output = output.as_os_str().to_str().unwrap();
+
+            Command::new("codesign")
+                .args(["--remove-signature", output])
+                .status()
+                .expect("unable to remove signature from patched chromedriver");
+            Command::new("codesign")
+                .args(["--force", "--deep", "-s", "-", output])
+                .status()
+                .expect("unable to sign patched chromedriver");
+        } else {
+            eprintln!("code-signing is not supported on operating systems other than macOS yet");
+        }
+    }
 
     Ok(())
 }
