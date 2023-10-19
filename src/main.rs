@@ -11,7 +11,7 @@ struct Args {
 
 pub fn patch(mut data: Vec<u8>) -> Result<Vec<u8>, regex::Error> {
     let regex = regex::bytes::Regex::new("cdc_[a-zA-Z0-9]*")?;
-    let mut matches = regex.find_iter(&data).peekable();
+    let matches = regex.find_iter(&data).peekable();
     let len = matches.peek().expect("signature not found").len();
     let ranges: Vec<_> = matches.map(|m| m.range()).collect();
     let signature: Vec<_> = rand::thread_rng().sample_iter(rand::distributions::Alphanumeric).take(len).collect();
