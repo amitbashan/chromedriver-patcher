@@ -1,0 +1,11 @@
+[package]
+name = "chromedriver-patcher"
+authors = ["Amit Bashan <amitba@netanya.ac.il>"]
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "*", features = ["derive"] }
+rand = "*"
+regex = "*"
+anyhow = "*"
